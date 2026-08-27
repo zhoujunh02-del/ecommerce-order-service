@@ -1,0 +1,25 @@
+# ── Build output ──────────────────────────────────────────────
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ── IDE ───────────────────────────────────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+
+# ── Logs & local runtime ──────────────────────────────────────
+*.log
+logs/
+
+# ── Local-only notes (Chinese planning / learning notes) ──────
+# Everything under notes/ is private and never pushed to GitHub.
+notes/

@@ -1,0 +1,39 @@
+// ── 根构建脚本 ─────────────────────────────────────────────────────────
+// 职责：把「所有模块共享」的配置写一次，子模块自动继承。
+// 插件用 `apply false`：只把插件放到 classpath 上，由各模块按需 apply。
+plugins {
+    id 'org.springframework.boot' version "${springBootVersion}" apply false
+    id 'io.spring.dependency-management' version "${springDepMgmtVersion}" apply false
+}
+
+// subprojects{} = 对每个子模块都执行的配置块
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'io.spring.dependency-management'
+
+    group = 'com.ecommerce'
+    version = '0.0.1-SNAPSHOT'
+
+    // 用 toolchain 锁定 JDK 版本：不依赖开发者机器上默认的 java，团队一致。
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+    }
+
+    repositories {
+        mavenCentral()
+    }
+
+    // 导入 Spring Boot 的 BOM：Spring/Jackson/PostgreSQL 等依赖的版本由它统一决定，
+    // 我们写依赖时不用（也不该）手写版本号，避免版本冲突。
+    dependencyManagement {
+        imports {
+            mavenBom "org.springframework.boot:spring-boot-dependencies:${springBootVersion}"
+        }
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+    }
+}

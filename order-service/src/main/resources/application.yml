@@ -1,0 +1,32 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/order_db
+    username: order_user
+    password: order_pass
+    hikari:
+      pool-name: order-pool
+      maximum-pool-size: 10
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+# MyBatis: map snake_case columns to camelCase Java fields automatically.
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+# Actuator: expose health + prometheus so we can verify the service is up
+# and later scrape metrics. show-details=always is fine for a dev project.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always

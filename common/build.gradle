@@ -1,0 +1,7 @@
+// common: shared code (event DTOs, error types, outbox abstractions).
+// It is a plain library — NOT a runnable Spring Boot app — so it does not
+// apply the org.springframework.boot plugin and produces an ordinary jar.
+dependencies {
+    // Kept minimal for Phase 0. Jackson / validation are added when the
+    // shared event DTOs land in Phase 2.
+}
