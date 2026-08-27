@@ -33,7 +33,22 @@ subprojects {
         }
     }
 
+    // Keep method/constructor parameter names in the bytecode. MyBatis uses them
+    // to map result columns onto Java records, and Spring uses them too.
+    tasks.withType(JavaCompile).configureEach {
+        options.compilerArgs << '-parameters'
+    }
+
     tasks.withType(Test).configureEach {
         useJUnitPlatform()
+        // Testcontainers' bundled docker-java client defaults to an API version
+        // older than what a very new Docker Engine accepts. When DOCKER_API_VERSION
+        // is exported, forward it as docker-java's `api.version` system property so
+        // the test JVM negotiates a version the daemon supports. No-op otherwise, so
+        // CI and other machines are unaffected.
+        def dockerApiVersion = System.getenv('DOCKER_API_VERSION')
+        if (dockerApiVersion) {
+            systemProperty 'api.version', dockerApiVersion
+        }
     }
 }
