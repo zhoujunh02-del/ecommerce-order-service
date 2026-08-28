@@ -54,4 +54,19 @@
          ORDER BY created_at DESC, id DESC
          LIMIT #{size}
     </select>
+
+    <!--
+      Uses the partial index idx_orders_timeout (WHERE status='PENDING_PAYMENT'), so
+      it scans only unpaid orders. FOR UPDATE SKIP LOCKED makes it a concurrency-safe
+      work queue across multiple scanner instances.
+    -->
+    <select id="lockExpiredBatch" resultType="com.ecommerce.order.domain.Order">
+        SELECT <include refid="cols"/>
+          FROM orders
+         WHERE status = 'PENDING_PAYMENT'
+           AND expire_at &lt; now()
+         ORDER BY expire_at
+         LIMIT #{limit}
+         FOR UPDATE SKIP LOCKED
+    </select>
 </mapper>

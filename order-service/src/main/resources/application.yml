@@ -41,6 +41,9 @@ inventory:
 # How long an unpaid order stays open before the timeout scanner cancels it.
 order:
   payment-timeout: PT15M
+  timeout:
+    scan-interval-ms: 5000
+    batch-size: 200
 
 # Transactional outbox relay.
 outbox:
