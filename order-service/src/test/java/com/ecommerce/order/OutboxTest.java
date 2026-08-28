@@ -9,6 +9,7 @@ import com.ecommerce.order.api.dto.CreateOrderRequest;
 import com.ecommerce.order.api.dto.CreateOrderRequest.OrderItemRequest;
 import com.ecommerce.order.api.dto.OrderResponse;
 import com.ecommerce.order.app.OrderAppService;
+import com.ecommerce.order.app.PaymentService;
 import com.ecommerce.order.infra.client.InventoryClient;
 import java.util.List;
 import java.util.UUID;
@@ -44,6 +45,9 @@ class OutboxTest {
     OrderAppService orderAppService;
 
     @Autowired
+    PaymentService paymentService;
+
+    @Autowired
     JdbcTemplate jdbc;
 
     @MockitoBean
@@ -55,7 +59,7 @@ class OutboxTest {
 
         OrderResponse order = orderAppService.placeOrder(9100, UUID.randomUUID().toString(),
                 new CreateOrderRequest(List.of(new OrderItemRequest(2001, 1))));
-        orderAppService.pay(order.orderId());
+        paymentService.mockPay(order.orderId());
 
         Integer created = jdbc.queryForObject(
                 "SELECT count(*) FROM outbox WHERE aggregate_id = ? AND event_type = 'OrderCreated'",

@@ -154,30 +154,6 @@ public class OrderAppService {
         return resp;
     }
 
-    /**
-     * Mock payment success. The state change and the OrderPaid event are written in
-     * ONE transaction (transactional outbox), so they cannot diverge. The relay then
-     * publishes the event and inventory-service commits stock asynchronously.
-     */
-    public void pay(UUID orderId) {
-        Order order = orderMapper.findById(orderId);
-        if (order == null) {
-            throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "no such order");
-        }
-        Boolean moved = tx.execute(s -> {
-            int affected = orderMapper.transition(orderId, OrderStatus.PENDING_PAYMENT, OrderStatus.PAID, null);
-            if (affected == 0) {
-                return false;   // lost the race (already paid/cancelled): write nothing
-            }
-            outboxMapper.insert(orderId, OrderEvent.ORDER_PAID,
-                    toJson(OrderEvent.of(OrderEvent.ORDER_PAID, orderId, order.userId())));
-            return true;
-        });
-        if (!Boolean.TRUE.equals(moved)) {
-            throw new BusinessException(ErrorCode.ORDER_STATE_CONFLICT, "order is not awaiting payment");
-        }
-    }
-
     public void cancel(long userId, UUID orderId) {
         Order order = orderMapper.findByIdAndUser(orderId, userId);
         if (order == null) {

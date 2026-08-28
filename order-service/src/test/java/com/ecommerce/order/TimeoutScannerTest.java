@@ -9,6 +9,7 @@ import com.ecommerce.order.api.dto.CreateOrderRequest;
 import com.ecommerce.order.api.dto.CreateOrderRequest.OrderItemRequest;
 import com.ecommerce.order.api.dto.OrderResponse;
 import com.ecommerce.order.app.OrderAppService;
+import com.ecommerce.order.app.PaymentService;
 import com.ecommerce.order.infra.client.InventoryClient;
 import com.ecommerce.order.job.TimeoutScanner;
 import java.util.List;
@@ -42,6 +43,9 @@ class TimeoutScannerTest {
 
     @Autowired
     TimeoutScanner timeoutScanner;
+
+    @Autowired
+    PaymentService paymentService;
 
     @Autowired
     JdbcTemplate jdbc;
@@ -78,7 +82,7 @@ class TimeoutScannerTest {
 
         OrderResponse order = orderAppService.placeOrder(9201, UUID.randomUUID().toString(),
                 new CreateOrderRequest(List.of(new OrderItemRequest(2002, 1))));
-        orderAppService.pay(order.orderId());
+        paymentService.mockPay(order.orderId());
 
         // Even if its deadline passes, a PAID order must be ignored by the scan.
         jdbc.update("UPDATE orders SET expire_at = now() - interval '1 minute' WHERE id = ?",

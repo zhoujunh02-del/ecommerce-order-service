@@ -45,6 +45,10 @@ order:
     scan-interval-ms: 5000
     batch-size: 200
 
+# Shared secret used to verify payment callback signatures (mock gateway).
+payment:
+  callback-secret: dev-callback-secret-change-in-prod
+
 # Transactional outbox relay.
 outbox:
   relay-interval-ms: 200
