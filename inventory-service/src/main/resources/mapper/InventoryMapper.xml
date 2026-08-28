@@ -44,4 +44,8 @@
           FROM inventory
          WHERE sku_id = #{skuId}
     </select>
+
+    <select id="findAll" resultType="com.ecommerce.inventory.domain.Inventory">
+        SELECT sku_id, available, reserved, sold, version FROM inventory
+    </select>
 </mapper>

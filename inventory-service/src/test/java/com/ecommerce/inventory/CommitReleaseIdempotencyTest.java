@@ -25,7 +25,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  */
 @SpringBootTest
 @Testcontainers
-@TestPropertySource(properties = "spring.kafka.listener.auto-startup=false")
+@TestPropertySource(properties = {
+        "spring.kafka.listener.auto-startup=false",
+        "inventory.redis.enabled=false"
+})
 class CommitReleaseIdempotencyTest {
 
     @Container

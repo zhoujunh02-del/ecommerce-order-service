@@ -7,6 +7,8 @@ import com.ecommerce.inventory.domain.Inventory;
 import com.ecommerce.inventory.infra.mapper.InventoryMapper;
 import com.ecommerce.inventory.infra.mapper.LedgerEntry;
 import com.ecommerce.inventory.infra.mapper.StockLedgerMapper;
+import com.ecommerce.inventory.infra.redis.RedisStockService;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -14,49 +16,81 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Three-state stock operations. Each method is a single local transaction; none
- * of them performs any network I/O.
+ * Three-state stock operations. Reserve uses a two-tier deduction: a Redis pre-deduct
+ * (performance layer) followed by a PostgreSQL conditional update (source of truth).
  */
 @Service
 public class StockService {
 
     private final InventoryMapper inventoryMapper;
     private final StockLedgerMapper ledgerMapper;
+    private final RedisStockService redisStock;
 
-    public StockService(InventoryMapper inventoryMapper, StockLedgerMapper ledgerMapper) {
+    public StockService(InventoryMapper inventoryMapper,
+                        StockLedgerMapper ledgerMapper,
+                        RedisStockService redisStock) {
         this.inventoryMapper = inventoryMapper;
         this.ledgerMapper = ledgerMapper;
+        this.redisStock = redisStock;
     }
 
     /** Hold stock for an order. available -> reserved. */
     @Transactional
     public void reserve(UUID orderId, List<ReserveLine> lines) {
-        List<String> ops = ledgerMapper.findOpTypes(orderId);
-        if (ops.contains("RELEASE")) {
-            // The order was already released/compensated. A late reserve arriving now
-            // is the "hanging" problem — reserving would leak stock. Reject it.
-            throw new BusinessException(ErrorCode.ORDER_STATE_CONFLICT,
-                    "reservation already released for order " + orderId);
-        }
-        if (ops.contains("RESERVE")) {
-            return;   // idempotent: a retry of an already-successful reserve
-        }
-
-        // Lock rows in a stable order (by sku_id) so two multi-SKU orders touching
-        // the same SKUs in different request order cannot deadlock each other.
+        // Process SKUs in a stable order (by sku_id) so two multi-SKU orders cannot
+        // deadlock on the DB rows, and so Redis pre-deducts happen in the same order.
         List<ReserveLine> ordered = lines.stream()
                 .sorted(Comparator.comparingLong(ReserveLine::skuId))
                 .toList();
 
-        for (ReserveLine line : ordered) {
-            int affected = inventoryMapper.deductAvailable(line.skuId(), line.quantity());
-            if (affected == 0) {
-                // Either the SKU doesn't exist or there isn't enough stock. Rolling
-                // back here undoes any earlier lines reserved in this same order.
-                throw new BusinessException(ErrorCode.INSUFFICIENT_STOCK,
-                        "insufficient stock for sku " + line.skuId());
+        List<ReserveLine> redisHeld = new ArrayList<>();
+        try {
+            // TIER 1 (performance) FIRST: a sold-out SKU fast-fails here with NO
+            // database I/O at all — this is what offloads the DB under a hot-SKU flood.
+            for (ReserveLine line : ordered) {
+                long remaining = redisStock.preDeduct(line.skuId(), line.quantity());
+                if (remaining == RedisStockService.INSUFFICIENT) {
+                    throw new BusinessException(ErrorCode.INSUFFICIENT_STOCK,
+                            "insufficient stock for sku " + line.skuId());
+                }
+                if (remaining >= 0) {
+                    redisHeld.add(line);
+                }
+                // remaining == DEGRADE → Redis off/missing/down: fall through to the DB.
             }
-            ledgerMapper.insert(line.skuId(), orderId, "RESERVE", line.quantity());
+
+            // Idempotency / hanging guard (DB). Reached only after Redis let us through.
+            List<String> ops = ledgerMapper.findOpTypes(orderId);
+            if (ops.contains("RELEASE")) {
+                // Late reserve after a release — the "hanging" problem. Reject it.
+                throw new BusinessException(ErrorCode.ORDER_STATE_CONFLICT,
+                        "reservation already released for order " + orderId);
+            }
+            if (ops.contains("RESERVE")) {
+                // Already reserved (a retry). Undo this call's Redis pre-deducts and stop.
+                releaseRedis(redisHeld);
+                return;
+            }
+
+            // TIER 2 (source of truth): the conditional update decides for real.
+            for (ReserveLine line : ordered) {
+                int affected = inventoryMapper.deductAvailable(line.skuId(), line.quantity());
+                if (affected == 0) {
+                    throw new BusinessException(ErrorCode.INSUFFICIENT_STOCK,
+                            "insufficient stock for sku " + line.skuId());
+                }
+                ledgerMapper.insert(line.skuId(), orderId, "RESERVE", line.quantity());
+            }
+        } catch (RuntimeException e) {
+            // The DB transaction rolls back on throw; give the Redis pre-deducts back too.
+            releaseRedis(redisHeld);
+            throw e;
+        }
+    }
+
+    private void releaseRedis(List<ReserveLine> held) {
+        for (ReserveLine line : held) {
+            redisStock.refund(line.skuId(), line.quantity());
         }
     }
 
@@ -92,13 +126,18 @@ public class StockService {
             ledgerMapper.insert(0L, orderId, "RELEASE", 0);
             return;
         }
-        for (LedgerEntry r : ledgerMapper.findByOrderAndOp(orderId, "RESERVE")) {
+        List<LedgerEntry> reserves = ledgerMapper.findByOrderAndOp(orderId, "RESERVE");
+        for (LedgerEntry r : reserves) {
             int affected = inventoryMapper.releaseReserved(r.skuId(), r.quantity());
             if (affected == 0) {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR,
                         "release inconsistency for sku " + r.skuId());
             }
             ledgerMapper.insert(r.skuId(), orderId, "RELEASE", r.quantity());
+        }
+        // Put the stock back into the Redis performance layer too.
+        for (LedgerEntry r : reserves) {
+            redisStock.refund(r.skuId(), r.quantity());
         }
     }
 
