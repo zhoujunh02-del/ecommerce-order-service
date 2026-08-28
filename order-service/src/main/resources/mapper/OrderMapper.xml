@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecommerce.order.infra.mapper.OrderMapper">
+
+    <insert id="insert">
+        INSERT INTO orders (id, order_no, user_id, status, total_amount, currency, expire_at)
+        VALUES (#{id}, #{orderNo}, #{userId}, #{status}, #{totalAmount}, #{currency}, #{expireAt})
+    </insert>
+
+    <!--
+      ★ Conditional state transition. The WHERE status = #{from} guard means only the
+      caller who finds the order in the expected state changes it. A concurrent
+      payment-callback vs timeout-cancel race is resolved here: one affects 1 row and
+      proceeds, the other affects 0 rows and backs off. Same idea as the stock
+      conditional update — the database row lock provides the mutual exclusion.
+    -->
+    <update id="transition">
+        UPDATE orders
+           SET status      = #{to},
+               fail_reason = #{reason},
+               version     = version + 1,
+               updated_at  = now()
+         WHERE id = #{id}
+           AND status = #{from}
+    </update>
+
+    <!-- Column order matches the Order record constructor for positional mapping. -->
+    <sql id="cols">
+        id, order_no, user_id, status, total_amount, currency,
+        expire_at, fail_reason, version, created_at, updated_at
+    </sql>
+
+    <select id="findById" resultType="com.ecommerce.order.domain.Order">
+        SELECT <include refid="cols"/> FROM orders WHERE id = #{id}
+    </select>
+
+    <select id="findByIdAndUser" resultType="com.ecommerce.order.domain.Order">
+        SELECT <include refid="cols"/> FROM orders WHERE id = #{id} AND user_id = #{userId}
+    </select>
+
+    <!--
+      Keyset pagination. The row-value comparison (created_at, id) < (cursor_ts, cursor_id)
+      walks the composite index idx_orders_user directly, so any page costs the same —
+      unlike OFFSET, which must scan and discard everything before the page.
+    -->
+    <select id="findPage" resultType="com.ecommerce.order.domain.Order">
+        SELECT <include refid="cols"/>
+          FROM orders
+         WHERE user_id = #{userId}
+        <if test="cursorCreatedAt != null">
+           AND (created_at, id) &lt; (#{cursorCreatedAt}, #{cursorId})
+        </if>
+         ORDER BY created_at DESC, id DESC
+         LIMIT #{size}
+    </select>
+</mapper>

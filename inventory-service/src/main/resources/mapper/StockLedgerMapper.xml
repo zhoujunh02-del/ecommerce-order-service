@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecommerce.inventory.infra.mapper.StockLedgerMapper">
+
+    <!-- jdbcType=OTHER lets the driver bind java.util.UUID to a PostgreSQL uuid column. -->
+    <insert id="insert">
+        INSERT INTO stock_ledger (sku_id, order_id, op_type, quantity)
+        VALUES (#{skuId}, #{orderId,jdbcType=OTHER}, #{opType}, #{qty})
+    </insert>
+
+    <!-- Ordered by sku_id so commit/release lock rows in a consistent order (deadlock-safe). -->
+    <select id="findByOrderAndOp" resultType="com.ecommerce.inventory.infra.mapper.LedgerEntry">
+        SELECT sku_id, quantity
+          FROM stock_ledger
+         WHERE order_id = #{orderId,jdbcType=OTHER}
+           AND op_type = #{opType}
+         ORDER BY sku_id
+    </select>
+</mapper>

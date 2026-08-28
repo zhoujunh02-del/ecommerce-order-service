@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecommerce.order.infra.mapper.OrderItemMapper">
+
+    <insert id="batchInsert">
+        INSERT INTO order_items (order_id, sku_id, sku_name, unit_price, quantity)
+        VALUES
+        <foreach collection="items" item="it" separator=",">
+            (#{orderId}, #{it.skuId}, #{it.skuName}, #{it.unitPrice}, #{it.quantity})
+        </foreach>
+    </insert>
+
+    <select id="findByOrderId" resultType="com.ecommerce.order.infra.mapper.OrderItemRow">
+        SELECT sku_id, sku_name, unit_price, quantity
+          FROM order_items
+         WHERE order_id = #{orderId}
+         ORDER BY id
+    </select>
+</mapper>

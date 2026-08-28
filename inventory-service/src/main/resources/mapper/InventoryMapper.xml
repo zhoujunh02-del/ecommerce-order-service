@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecommerce.inventory.infra.mapper.InventoryMapper">
+
+    <!--
+      ★ The heart of oversell prevention.
+      The check (available >= qty) and the write (available - qty) happen in ONE
+      atomic UPDATE. PostgreSQL takes a row lock, so concurrent updates on the same
+      SKU are serialized. If two requests race for the last unit, the first affects
+      1 row and the second sees available < qty and affects 0 rows. There is no
+      window between "check" and "act" for a race to slip through.
+    -->
+    <update id="deductAvailable">
+        UPDATE inventory
+           SET available  = available - #{qty},
+               reserved   = reserved + #{qty},
+               updated_at = now()
+         WHERE sku_id = #{skuId}
+           AND available >= #{qty}
+    </update>
+
+    <update id="commitReserved">
+        UPDATE inventory
+           SET reserved   = reserved - #{qty},
+               sold       = sold + #{qty},
+               updated_at = now()
+         WHERE sku_id = #{skuId}
+           AND reserved >= #{qty}
+    </update>
+
+    <update id="releaseReserved">
+        UPDATE inventory
+           SET available  = available + #{qty},
+               reserved   = reserved - #{qty},
+               updated_at = now()
+         WHERE sku_id = #{skuId}
+           AND reserved >= #{qty}
+    </update>
+
+    <!-- Column order matches the Inventory record constructor for positional mapping. -->
+    <select id="findBySkuId" resultType="com.ecommerce.inventory.domain.Inventory">
+        SELECT sku_id, available, reserved, sold, version
+          FROM inventory
+         WHERE sku_id = #{skuId}
+    </select>
+</mapper>
