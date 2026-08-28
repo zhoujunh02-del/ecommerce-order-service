@@ -24,7 +24,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 /** The TCC edge cases: idempotence, empty rollback, and hanging. */
 @SpringBootTest
 @Testcontainers
-@TestPropertySource(properties = "spring.kafka.listener.auto-startup=false")
+@TestPropertySource(properties = {
+        "spring.kafka.listener.auto-startup=false",
+        "inventory.redis.enabled=false"
+})
 class SagaEdgeCasesTest {
 
     @Container

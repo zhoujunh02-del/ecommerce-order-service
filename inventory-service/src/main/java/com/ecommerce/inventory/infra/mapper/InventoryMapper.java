@@ -1,6 +1,7 @@
 package com.ecommerce.inventory.infra.mapper;
 
 import com.ecommerce.inventory.domain.Inventory;
+import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -17,4 +18,7 @@ public interface InventoryMapper {
     int releaseReserved(@Param("skuId") long skuId, @Param("qty") int qty);
 
     Inventory findBySkuId(@Param("skuId") long skuId);
+
+    /** All stock rows — used to warm and reconcile Redis. */
+    List<Inventory> findAll();
 }
