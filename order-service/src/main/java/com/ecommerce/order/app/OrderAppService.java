@@ -2,6 +2,7 @@ package com.ecommerce.order.app;
 
 import com.ecommerce.common.error.BusinessException;
 import com.ecommerce.common.error.ErrorCode;
+import com.ecommerce.common.event.OrderEvent;
 import com.ecommerce.common.id.UuidV7;
 import com.ecommerce.order.api.dto.CreateOrderRequest;
 import com.ecommerce.order.api.dto.OrderResponse;
@@ -17,6 +18,7 @@ import com.ecommerce.order.infra.mapper.IdempotencyRow;
 import com.ecommerce.order.infra.mapper.OrderItemMapper;
 import com.ecommerce.order.infra.mapper.OrderItemRow;
 import com.ecommerce.order.infra.mapper.OrderMapper;
+import com.ecommerce.order.infra.mapper.OutboxMapper;
 import com.ecommerce.order.infra.mapper.Sku;
 import com.ecommerce.order.infra.mapper.SkuMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,6 +53,7 @@ public class OrderAppService {
     private final OrderItemMapper orderItemMapper;
     private final SkuMapper skuMapper;
     private final IdempotencyMapper idempotencyMapper;
+    private final OutboxMapper outboxMapper;
     private final InventoryClient inventoryClient;
     private final ObjectMapper objectMapper;
     private final Duration paymentTimeout;
@@ -60,6 +63,7 @@ public class OrderAppService {
                            OrderItemMapper orderItemMapper,
                            SkuMapper skuMapper,
                            IdempotencyMapper idempotencyMapper,
+                           OutboxMapper outboxMapper,
                            InventoryClient inventoryClient,
                            ObjectMapper objectMapper,
                            @Value("${order.payment-timeout}") Duration paymentTimeout) {
@@ -68,6 +72,7 @@ public class OrderAppService {
         this.orderItemMapper = orderItemMapper;
         this.skuMapper = skuMapper;
         this.idempotencyMapper = idempotencyMapper;
+        this.outboxMapper = outboxMapper;
         this.inventoryClient = inventoryClient;
         this.objectMapper = objectMapper;
         this.paymentTimeout = paymentTimeout;
@@ -142,25 +147,35 @@ public class OrderAppService {
         OrderResponse resp = toResponse(order.id(), orderNo, OrderStatus.PENDING_PAYMENT, total, expireAt, items);
         tx.executeWithoutResult(s -> {
             orderMapper.transition(orderId, OrderStatus.CREATING, OrderStatus.PENDING_PAYMENT, null);
+            outboxMapper.insert(orderId, OrderEvent.ORDER_CREATED,
+                    toJson(OrderEvent.of(OrderEvent.ORDER_CREATED, orderId, userId)));
             idempotencyMapper.complete(idemKey, toJson(IdemOutcome.ok(resp)));
         });
         return resp;
     }
 
-    /** Mock payment success. Phase 1 commits stock synchronously (see the gap note). */
+    /**
+     * Mock payment success. The state change and the OrderPaid event are written in
+     * ONE transaction (transactional outbox), so they cannot diverge. The relay then
+     * publishes the event and inventory-service commits stock asynchronously.
+     */
     public void pay(UUID orderId) {
         Order order = orderMapper.findById(orderId);
         if (order == null) {
             throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "no such order");
         }
-        int affected = tx.execute(s ->
-                orderMapper.transition(orderId, OrderStatus.PENDING_PAYMENT, OrderStatus.PAID, null));
-        if (affected == 0) {
+        Boolean moved = tx.execute(s -> {
+            int affected = orderMapper.transition(orderId, OrderStatus.PENDING_PAYMENT, OrderStatus.PAID, null);
+            if (affected == 0) {
+                return false;   // lost the race (already paid/cancelled): write nothing
+            }
+            outboxMapper.insert(orderId, OrderEvent.ORDER_PAID,
+                    toJson(OrderEvent.of(OrderEvent.ORDER_PAID, orderId, order.userId())));
+            return true;
+        });
+        if (!Boolean.TRUE.equals(moved)) {
             throw new BusinessException(ErrorCode.ORDER_STATE_CONFLICT, "order is not awaiting payment");
         }
-        // KNOWN GAP (Phase 1): second write to another service, not atomic with the
-        // transition above. Replaced by an outbox event over Kafka in Phase 2B.
-        inventoryClient.commit(orderId);
     }
 
     public void cancel(long userId, UUID orderId) {
@@ -168,13 +183,18 @@ public class OrderAppService {
         if (order == null) {
             throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "no such order");
         }
-        int affected = tx.execute(s ->
-                orderMapper.transition(orderId, OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED, null));
-        if (affected == 0) {
+        Boolean moved = tx.execute(s -> {
+            int affected = orderMapper.transition(orderId, OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED, null);
+            if (affected == 0) {
+                return false;
+            }
+            outboxMapper.insert(orderId, OrderEvent.ORDER_CANCELLED,
+                    toJson(OrderEvent.of(OrderEvent.ORDER_CANCELLED, orderId, userId)));
+            return true;
+        });
+        if (!Boolean.TRUE.equals(moved)) {
             throw new BusinessException(ErrorCode.ORDER_STATE_CONFLICT, "order cannot be cancelled now");
         }
-        // Same known dual-write gap as pay(); fixed in Phase 2B.
-        inventoryClient.release(orderId);
     }
 
     public OrderResponse getOrder(long userId, UUID orderId) {
@@ -239,11 +259,11 @@ public class OrderAppService {
         }
     }
 
-    private String toJson(IdemOutcome outcome) {
+    private String toJson(Object value) {
         try {
-            return objectMapper.writeValueAsString(outcome);
+            return objectMapper.writeValueAsString(value);
         } catch (Exception e) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "cannot serialize outcome");
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "cannot serialize value");
         }
     }
 

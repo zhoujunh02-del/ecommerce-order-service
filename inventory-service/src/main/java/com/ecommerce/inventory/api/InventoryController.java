@@ -1,7 +1,6 @@
 package com.ecommerce.inventory.api;
 
 import com.ecommerce.inventory.api.dto.InventoryResponse;
-import com.ecommerce.inventory.api.dto.OrderRefRequest;
 import com.ecommerce.inventory.api.dto.ReserveRequest;
 import com.ecommerce.inventory.api.dto.StockActionResponse;
 import com.ecommerce.inventory.app.StockService;
@@ -21,22 +20,12 @@ public class InventoryController {
         this.stockService = stockService;
     }
 
+    // reserve stays a synchronous HTTP call (the Saga forward action). commit/release
+    // are now driven by Kafka events (see InventoryEventConsumer), not HTTP.
     @PostMapping("/internal/inventory/reserve")
     public StockActionResponse reserve(@RequestBody ReserveRequest req) {
         stockService.reserve(req.orderId(), req.lines());
         return new StockActionResponse("RESERVED");
-    }
-
-    @PostMapping("/internal/inventory/commit")
-    public StockActionResponse commit(@RequestBody OrderRefRequest req) {
-        stockService.commit(req.orderId());
-        return new StockActionResponse("COMMITTED");
-    }
-
-    @PostMapping("/internal/inventory/release")
-    public StockActionResponse release(@RequestBody OrderRefRequest req) {
-        stockService.release(req.orderId());
-        return new StockActionResponse("RELEASED");
     }
 
     @GetMapping("/api/v1/inventory/{skuId}")

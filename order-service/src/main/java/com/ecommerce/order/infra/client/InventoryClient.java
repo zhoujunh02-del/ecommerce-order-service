@@ -3,7 +3,6 @@ package com.ecommerce.order.infra.client;
 import com.ecommerce.common.error.ApiError;
 import com.ecommerce.common.error.BusinessException;
 import com.ecommerce.common.error.ErrorCode;
-import com.ecommerce.order.infra.client.dto.InventoryDtos.OrderRefRequest;
 import com.ecommerce.order.infra.client.dto.InventoryDtos.ReserveLine;
 import com.ecommerce.order.infra.client.dto.InventoryDtos.ReserveRequest;
 import java.util.List;
@@ -30,16 +29,10 @@ public class InventoryClient {
         this.http = inventoryRestClient;
     }
 
+    // reserve is the only SYNCHRONOUS inventory call (the Saga forward action). Stock
+    // commit/release now happen asynchronously via order events consumed by inventory.
     public void reserve(UUID orderId, List<ReserveLine> lines) {
         post("/internal/inventory/reserve", new ReserveRequest(orderId, lines));
-    }
-
-    public void commit(UUID orderId) {
-        post("/internal/inventory/commit", new OrderRefRequest(orderId));
-    }
-
-    public void release(UUID orderId) {
-        post("/internal/inventory/release", new OrderRefRequest(orderId));
     }
 
     private void post(String path, Object body) {

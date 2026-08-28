@@ -57,7 +57,7 @@ verifiable, demonstrable state:
 
 - [x] **Phase 0** — Project scaffolding, infrastructure, database schema
 - [x] **Phase 1** — Single-node correctness baseline (order placement, stock, state machine)
-- [ ] **Phase 2** — Idempotency and transactional outbox
+- [x] **Phase 2** — Idempotency and transactional outbox
 - [ ] **Phase 3** — Saga compensation and timeout-uncertainty handling
 - [ ] **Phase 4** — Redis two-tier deduction and performance tuning
 - [ ] **Phase 5** — Observability and documentation
