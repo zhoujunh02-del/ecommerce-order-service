@@ -4,8 +4,8 @@
 <mapper namespace="com.ecommerce.order.infra.mapper.OrderMapper">
 
     <insert id="insert">
-        INSERT INTO orders (id, order_no, user_id, status, total_amount, currency, expire_at)
-        VALUES (#{id}, #{orderNo}, #{userId}, #{status}, #{totalAmount}, #{currency}, #{expireAt})
+        INSERT INTO orders (id, order_no, user_id, status, total_amount, currency, expire_at, idem_key)
+        VALUES (#{id}, #{orderNo}, #{userId}, #{status}, #{totalAmount}, #{currency}, #{expireAt}, #{idemKey})
     </insert>
 
     <!--
@@ -28,7 +28,7 @@
     <!-- Column order matches the Order record constructor for positional mapping. -->
     <sql id="cols">
         id, order_no, user_id, status, total_amount, currency,
-        expire_at, fail_reason, version, created_at, updated_at
+        expire_at, fail_reason, version, created_at, updated_at, idem_key
     </sql>
 
     <select id="findById" resultType="com.ecommerce.order.domain.Order">
@@ -68,5 +68,15 @@
          ORDER BY expire_at
          LIMIT #{limit}
          FOR UPDATE SKIP LOCKED
+    </select>
+
+    <!-- Orders stuck in CREATING (a reserve whose outcome was never learned). -->
+    <select id="findStuckCreating" resultType="com.ecommerce.order.domain.Order">
+        SELECT <include refid="cols"/>
+          FROM orders
+         WHERE status = 'CREATING'
+           AND created_at &lt; now() - make_interval(secs => #{olderThanSeconds})
+         ORDER BY created_at
+         LIMIT #{limit}
     </select>
 </mapper>

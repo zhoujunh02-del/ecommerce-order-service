@@ -17,4 +17,10 @@
            AND op_type = #{opType}
          ORDER BY sku_id
     </select>
+
+    <select id="findOpTypes" resultType="string">
+        SELECT DISTINCT op_type
+          FROM stock_ledger
+         WHERE order_id = #{orderId,jdbcType=OTHER}
+    </select>
 </mapper>

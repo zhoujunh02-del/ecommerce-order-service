@@ -31,6 +31,17 @@ public class StockService {
     /** Hold stock for an order. available -> reserved. */
     @Transactional
     public void reserve(UUID orderId, List<ReserveLine> lines) {
+        List<String> ops = ledgerMapper.findOpTypes(orderId);
+        if (ops.contains("RELEASE")) {
+            // The order was already released/compensated. A late reserve arriving now
+            // is the "hanging" problem — reserving would leak stock. Reject it.
+            throw new BusinessException(ErrorCode.ORDER_STATE_CONFLICT,
+                    "reservation already released for order " + orderId);
+        }
+        if (ops.contains("RESERVE")) {
+            return;   // idempotent: a retry of an already-successful reserve
+        }
+
         // Lock rows in a stable order (by sku_id) so two multi-SKU orders touching
         // the same SKUs in different request order cannot deadlock each other.
         List<ReserveLine> ordered = lines.stream()
@@ -70,8 +81,16 @@ public class StockService {
     /** Return a cancelled/timed-out order's stock. reserved -> available. */
     @Transactional
     public void release(UUID orderId) {
-        if (!ledgerMapper.findByOrderAndOp(orderId, "RELEASE").isEmpty()) {
+        List<String> ops = ledgerMapper.findOpTypes(orderId);
+        if (ops.contains("RELEASE")) {
             return;   // already released (redelivered OrderCancelled) — no-op
+        }
+        if (!ops.contains("RESERVE")) {
+            // EMPTY ROLLBACK: a release arrived but no reservation exists (the reserve
+            // request was lost, or never happened). Add no stock, but record a RELEASE
+            // marker (sku_id 0) so that a late reserve for this order is rejected.
+            ledgerMapper.insert(0L, orderId, "RELEASE", 0);
+            return;
         }
         for (LedgerEntry r : ledgerMapper.findByOrderAndOp(orderId, "RESERVE")) {
             int affected = inventoryMapper.releaseReserved(r.skuId(), r.quantity());
@@ -81,6 +100,26 @@ public class StockService {
             }
             ledgerMapper.insert(r.skuId(), orderId, "RELEASE", r.quantity());
         }
+    }
+
+    /**
+     * The reservation status for an order, derived from the ledger. This is the
+     * endpoint the order-service reconciler calls to resolve a reserve whose outcome
+     * it never learned (e.g. a timed-out reserve). It is what lets a Saga converge.
+     */
+    @Transactional(readOnly = true)
+    public String queryReservation(UUID orderId) {
+        List<String> ops = ledgerMapper.findOpTypes(orderId);
+        if (ops.contains("RELEASE")) {
+            return "RELEASED";
+        }
+        if (ops.contains("COMMIT")) {
+            return "COMMITTED";
+        }
+        if (ops.contains("RESERVE")) {
+            return "RESERVED";
+        }
+        return "NOT_FOUND";
     }
 
     @Transactional(readOnly = true)
