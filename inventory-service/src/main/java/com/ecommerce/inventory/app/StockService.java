@@ -52,6 +52,11 @@ public class StockService {
     /** Confirm a paid order's stock. reserved -> sold. Quantities come from the ledger. */
     @Transactional
     public void commit(UUID orderId) {
+        // Idempotent: Kafka delivers at-least-once, so a redelivered OrderPaid must
+        // be a no-op. If we already committed this order, stop.
+        if (!ledgerMapper.findByOrderAndOp(orderId, "COMMIT").isEmpty()) {
+            return;
+        }
         for (LedgerEntry r : ledgerMapper.findByOrderAndOp(orderId, "RESERVE")) {
             int affected = inventoryMapper.commitReserved(r.skuId(), r.quantity());
             if (affected == 0) {
@@ -65,6 +70,9 @@ public class StockService {
     /** Return a cancelled/timed-out order's stock. reserved -> available. */
     @Transactional
     public void release(UUID orderId) {
+        if (!ledgerMapper.findByOrderAndOp(orderId, "RELEASE").isEmpty()) {
+            return;   // already released (redelivered OrderCancelled) — no-op
+        }
         for (LedgerEntry r : ledgerMapper.findByOrderAndOp(orderId, "RESERVE")) {
             int affected = inventoryMapper.releaseReserved(r.skuId(), r.quantity());
             if (affected == 0) {

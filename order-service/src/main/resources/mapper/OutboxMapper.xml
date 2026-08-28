@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecommerce.order.infra.mapper.OutboxMapper">
+
+    <insert id="insert">
+        INSERT INTO outbox (aggregate_id, event_type, payload)
+        VALUES (#{aggregateId}, #{eventType}, #{payload}::jsonb)
+    </insert>
+
+    <!-- payload::text reads the jsonb back as the exact JSON string to publish. -->
+    <select id="findBatchToSend" resultType="com.ecommerce.order.infra.mapper.OutboxRow">
+        SELECT id, aggregate_id, event_type, payload::text AS payload, retry_count
+          FROM outbox
+         WHERE status = 'PENDING'
+           AND next_retry_at &lt;= now()
+         ORDER BY id
+         LIMIT #{limit}
+    </select>
+
+    <update id="markSent">
+        UPDATE outbox SET status = 'SENT', sent_at = now() WHERE id = #{id}
+    </update>
+
+    <update id="markRetry">
+        UPDATE outbox
+           SET retry_count = retry_count + 1,
+               next_retry_at = #{nextRetryAt}
+         WHERE id = #{id}
+    </update>
+
+    <update id="markDead">
+        UPDATE outbox SET status = 'DEAD' WHERE id = #{id}
+    </update>
+</mapper>

@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -34,6 +35,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  */
 @SpringBootTest
 @Testcontainers
+@TestPropertySource(properties = {
+        "spring.kafka.listener.auto-startup=false",
+        "outbox.relay-interval-ms=3600000"
+})
 class OrderPlacementTest {
 
     @Container
@@ -56,7 +61,7 @@ class OrderPlacementTest {
         doNothing().when(inventoryClient).reserve(any(UUID.class), anyList());
 
         CreateOrderRequest req = new CreateOrderRequest(List.of(new OrderItemRequest(2001, 2)));
-        OrderResponse resp = orderAppService.placeOrder(USER, req);
+        OrderResponse resp = orderAppService.placeOrder(USER, UUID.randomUUID().toString(), req);
 
         assertThat(resp.status()).isEqualTo("PENDING_PAYMENT");
         Order persisted = orderMapper.findById(resp.orderId());
@@ -71,7 +76,7 @@ class OrderPlacementTest {
 
         CreateOrderRequest req = new CreateOrderRequest(List.of(new OrderItemRequest(2004, 2)));
 
-        assertThatThrownBy(() -> orderAppService.placeOrder(8002, req))
+        assertThatThrownBy(() -> orderAppService.placeOrder(8002, UUID.randomUUID().toString(), req))
                 .isInstanceOf(BusinessException.class)
                 .extracting("code").isEqualTo(ErrorCode.INSUFFICIENT_STOCK);
 

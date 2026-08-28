@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecommerce.order.infra.mapper.IdempotencyMapper">
+
+    <insert id="insertClaim">
+        INSERT INTO idempotency (idem_key, request_hash, status)
+        VALUES (#{idemKey}, #{requestHash}, 'IN_PROGRESS')
+    </insert>
+
+    <!-- response::text reads the jsonb column back as plain JSON text. -->
+    <select id="find" resultType="com.ecommerce.order.infra.mapper.IdempotencyRow">
+        SELECT idem_key, request_hash, status, response::text AS response
+          FROM idempotency
+         WHERE idem_key = #{idemKey}
+    </select>
+
+    <update id="complete">
+        UPDATE idempotency
+           SET status = 'COMPLETED',
+               response = #{response}::jsonb
+         WHERE idem_key = #{idemKey}
+    </update>
+</mapper>

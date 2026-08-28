@@ -18,7 +18,4 @@ public final class InventoryDtos {
 
     public record ReserveLine(long skuId, int quantity) {
     }
-
-    public record OrderRefRequest(UUID orderId) {
-    }
 }
