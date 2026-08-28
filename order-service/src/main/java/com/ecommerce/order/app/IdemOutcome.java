@@ -10,11 +10,11 @@ import com.ecommerce.order.api.dto.OrderResponse;
  */
 public record IdemOutcome(boolean success, OrderResponse order, String errorCode, String errorMessage) {
 
-    static IdemOutcome ok(OrderResponse order) {
+    public static IdemOutcome ok(OrderResponse order) {
         return new IdemOutcome(true, order, null, null);
     }
 
-    static IdemOutcome error(String errorCode, String errorMessage) {
+    public static IdemOutcome error(String errorCode, String errorMessage) {
         return new IdemOutcome(false, null, errorCode, errorMessage);
     }
 }

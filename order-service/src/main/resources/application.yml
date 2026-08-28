@@ -41,6 +41,40 @@ inventory:
 # How long an unpaid order stays open before the timeout scanner cancels it.
 order:
   payment-timeout: PT15M
+  timeout:
+    scan-interval-ms: 5000
+    batch-size: 200
+  reconcile:
+    interval-ms: 10000
+    stuck-after-seconds: 30
+    batch-size: 100
+
+# Retry + circuit breaker for the synchronous reserve call.
+resilience4j:
+  retry:
+    instances:
+      inventory:
+        max-attempts: 3
+        wait-duration: 50ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 3
+        retry-exceptions:
+          - com.ecommerce.order.infra.client.InventoryUnavailableException
+  circuitbreaker:
+    instances:
+      inventory:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 5s
+        record-exceptions:
+          - com.ecommerce.order.infra.client.InventoryUnavailableException
+        ignore-exceptions:
+          - com.ecommerce.common.error.BusinessException
+
+# Shared secret used to verify payment callback signatures (mock gateway).
+payment:
+  callback-secret: dev-callback-secret-change-in-prod
 
 # Transactional outbox relay.
 outbox:

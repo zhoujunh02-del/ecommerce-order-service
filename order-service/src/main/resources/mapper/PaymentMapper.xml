@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecommerce.order.infra.mapper.PaymentMapper">
+
+    <insert id="insertAnomaly">
+        INSERT INTO payment_anomaly (order_id, pay_no, amount, reason)
+        VALUES (#{orderId}, #{payNo}, #{amount}, #{reason})
+    </insert>
+
+    <insert id="insertPendingRefund">
+        INSERT INTO pending_refund (order_id, pay_no, amount)
+        VALUES (#{orderId}, #{payNo}, #{amount})
+    </insert>
+</mapper>

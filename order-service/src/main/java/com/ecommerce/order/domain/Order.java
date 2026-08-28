@@ -19,5 +19,6 @@ public record Order(
         String failReason,
         int version,
         OffsetDateTime createdAt,
-        OffsetDateTime updatedAt) {
+        OffsetDateTime updatedAt,
+        String idemKey) {
 }

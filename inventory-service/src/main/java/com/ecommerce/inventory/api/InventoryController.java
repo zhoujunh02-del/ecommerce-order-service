@@ -1,8 +1,10 @@
 package com.ecommerce.inventory.api;
 
 import com.ecommerce.inventory.api.dto.InventoryResponse;
+import com.ecommerce.inventory.api.dto.ReservationStatusResponse;
 import com.ecommerce.inventory.api.dto.ReserveRequest;
 import com.ecommerce.inventory.api.dto.StockActionResponse;
+import java.util.UUID;
 import com.ecommerce.inventory.app.StockService;
 import com.ecommerce.inventory.domain.Inventory;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +28,12 @@ public class InventoryController {
     public StockActionResponse reserve(@RequestBody ReserveRequest req) {
         stockService.reserve(req.orderId(), req.lines());
         return new StockActionResponse("RESERVED");
+    }
+
+    /** Status query used by the order-service reconciler to converge a Saga. */
+    @GetMapping("/internal/inventory/reservations/{orderId}")
+    public ReservationStatusResponse reservation(@PathVariable UUID orderId) {
+        return new ReservationStatusResponse(orderId.toString(), stockService.queryReservation(orderId));
     }
 
     @GetMapping("/api/v1/inventory/{skuId}")

@@ -31,4 +31,16 @@ public interface OrderMapper {
                          @Param("cursorCreatedAt") OffsetDateTime cursorCreatedAt,
                          @Param("cursorId") UUID cursorId,
                          @Param("size") int size);
+
+    /**
+     * Claim a batch of expired unpaid orders for cancellation. FOR UPDATE SKIP
+     * LOCKED means rows locked by another scanner instance are skipped, not waited
+     * on — so multiple instances can run this concurrently and safely. Must be
+     * called inside a transaction; the locks are held until it commits.
+     */
+    List<Order> lockExpiredBatch(@Param("limit") int limit);
+
+    /** Orders stuck in CREATING longer than the given age — candidates for reconciliation. */
+    List<Order> findStuckCreating(@Param("olderThanSeconds") long olderThanSeconds,
+                                  @Param("limit") int limit);
 }

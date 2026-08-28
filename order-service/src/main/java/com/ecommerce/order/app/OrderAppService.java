@@ -109,7 +109,7 @@ public class OrderAppService {
         String orderNo = OrderNo.generate(orderId);
         OffsetDateTime expireAt = OffsetDateTime.now().plus(paymentTimeout);
         Order order = new Order(orderId, orderNo, userId, OrderStatus.CREATING,
-                total, "CNY", expireAt, null, 0, null, null);
+                total, "CNY", expireAt, null, 0, null, null, idemKey);
 
         // ── T1: claim the idempotency key AND persist the order, atomically. ──
         // If a concurrent request already claimed the key, the INSERT conflicts and
@@ -131,16 +131,21 @@ public class OrderAppService {
             inventoryClient.reserve(orderId, lines);
         } catch (BusinessException e) {
             if (e.code() == ErrorCode.INSUFFICIENT_STOCK) {
-                // Cache the business failure so retries get the identical 409 (T2').
+                // Definite business failure → cache it so retries get the identical 409 (T2').
                 tx.executeWithoutResult(s -> {
                     orderMapper.transition(orderId, OrderStatus.CREATING, OrderStatus.FAILED, "INSUFFICIENT_STOCK");
                     idempotencyMapper.complete(idemKey,
                             toJson(IdemOutcome.error(e.code().name(), e.getMessage())));
                 });
             }
-            // Technical failure: leave the order CREATING and the key IN_PROGRESS.
-            // Phase 3 adds retry + a reconciler that queries inventory to decide.
             throw e;
+        } catch (RuntimeException e) {
+            // Retries exhausted / circuit open / timeout: we do NOT know whether the
+            // reserve happened. Leave the order CREATING and the key IN_PROGRESS; the
+            // CreatingOrderReconciler will query inventory's status and decide. The
+            // client gets a 503 and may retry (idempotently).
+            throw new BusinessException(ErrorCode.INVENTORY_UNAVAILABLE,
+                    "inventory temporarily unavailable; order is being processed");
         }
 
         // ── T2: CREATING → PENDING_PAYMENT, and cache the success outcome. ──
@@ -152,30 +157,6 @@ public class OrderAppService {
             idempotencyMapper.complete(idemKey, toJson(IdemOutcome.ok(resp)));
         });
         return resp;
-    }
-
-    /**
-     * Mock payment success. The state change and the OrderPaid event are written in
-     * ONE transaction (transactional outbox), so they cannot diverge. The relay then
-     * publishes the event and inventory-service commits stock asynchronously.
-     */
-    public void pay(UUID orderId) {
-        Order order = orderMapper.findById(orderId);
-        if (order == null) {
-            throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "no such order");
-        }
-        Boolean moved = tx.execute(s -> {
-            int affected = orderMapper.transition(orderId, OrderStatus.PENDING_PAYMENT, OrderStatus.PAID, null);
-            if (affected == 0) {
-                return false;   // lost the race (already paid/cancelled): write nothing
-            }
-            outboxMapper.insert(orderId, OrderEvent.ORDER_PAID,
-                    toJson(OrderEvent.of(OrderEvent.ORDER_PAID, orderId, order.userId())));
-            return true;
-        });
-        if (!Boolean.TRUE.equals(moved)) {
-            throw new BusinessException(ErrorCode.ORDER_STATE_CONFLICT, "order is not awaiting payment");
-        }
     }
 
     public void cancel(long userId, UUID orderId) {

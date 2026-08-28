@@ -19,4 +19,7 @@ public interface StockLedgerMapper {
 
     List<LedgerEntry> findByOrderAndOp(@Param("orderId") UUID orderId,
                                        @Param("opType") String opType);
+
+    /** Distinct op types recorded for an order — used to answer status queries and guard Saga edge cases. */
+    List<String> findOpTypes(@Param("orderId") UUID orderId);
 }

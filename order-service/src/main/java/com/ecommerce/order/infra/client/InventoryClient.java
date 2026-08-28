@@ -5,7 +5,10 @@ import com.ecommerce.common.error.BusinessException;
 import com.ecommerce.common.error.ErrorCode;
 import com.ecommerce.order.infra.client.dto.InventoryDtos.ReserveLine;
 import com.ecommerce.order.infra.client.dto.InventoryDtos.ReserveRequest;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -14,11 +17,12 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 /**
- * Synchronous client for inventory-service. Translates transport outcomes into
- * our error vocabulary:
- *   - a business 409 (INSUFFICIENT_STOCK) -> non-retryable BusinessException
- *   - a timeout / connection error / 5xx  -> INVENTORY_UNAVAILABLE
- * The distinction matters: business failures must not be retried, technical ones may.
+ * Synchronous client for inventory-service. Distinguishes business rejections from
+ * technical failures:
+ *   - 409 INSUFFICIENT_STOCK -> BusinessException (never retried)
+ *   - timeout / connection / 5xx -> InventoryUnavailableException (retried, trips breaker)
+ * reserve() is wrapped with Resilience4j @Retry + @CircuitBreaker. Retrying is safe
+ * because inventory's reserve is idempotent (keyed by order id).
  */
 @Component
 public class InventoryClient {
@@ -29,30 +33,36 @@ public class InventoryClient {
         this.http = inventoryRestClient;
     }
 
-    // reserve is the only SYNCHRONOUS inventory call (the Saga forward action). Stock
-    // commit/release now happen asynchronously via order events consumed by inventory.
+    @Retry(name = "inventory")
+    @CircuitBreaker(name = "inventory")
     public void reserve(UUID orderId, List<ReserveLine> lines) {
-        post("/internal/inventory/reserve", new ReserveRequest(orderId, lines));
-    }
-
-    private void post(String path, Object body) {
         try {
-            http.post().uri(path).body(body).retrieve().toBodilessEntity();
+            http.post().uri("/internal/inventory/reserve")
+                    .body(new ReserveRequest(orderId, lines))
+                    .retrieve().toBodilessEntity();
         } catch (HttpClientErrorException e) {
-            // 4xx: a business decision from inventory-service.
             ApiError err = safeParse(e);
             if (err != null && ErrorCode.INSUFFICIENT_STOCK.name().equals(err.code())) {
                 throw new BusinessException(ErrorCode.INSUFFICIENT_STOCK, err.message());
             }
-            throw new BusinessException(ErrorCode.INVENTORY_UNAVAILABLE,
-                    "inventory rejected request: " + (err != null ? err.code() : e.getStatusText()));
+            // Any other 4xx (e.g. a hanging-reservation conflict) is technical here.
+            throw new InventoryUnavailableException(
+                    "inventory rejected reserve: " + (err != null ? err.code() : e.getStatusText()));
         } catch (HttpServerErrorException e) {
-            // 5xx: inventory-service is unhealthy — treat as a technical failure.
-            throw new BusinessException(ErrorCode.INVENTORY_UNAVAILABLE, "inventory 5xx");
+            throw new InventoryUnavailableException("inventory 5xx");
         } catch (ResourceAccessException e) {
-            // Connection refused / read timeout — we do NOT know if it happened.
-            throw new BusinessException(ErrorCode.INVENTORY_UNAVAILABLE,
-                    "inventory unavailable: " + e.getMessage());
+            throw new InventoryUnavailableException("inventory timeout/connection: " + e.getMessage());
+        }
+    }
+
+    /** Query the reservation outcome for an order. Used by the reconciler. */
+    public String queryReservation(UUID orderId) {
+        try {
+            Map<?, ?> body = http.get().uri("/internal/inventory/reservations/{id}", orderId)
+                    .retrieve().body(Map.class);
+            return body == null ? "NOT_FOUND" : String.valueOf(body.get("status"));
+        } catch (HttpServerErrorException | ResourceAccessException e) {
+            throw new InventoryUnavailableException("status query failed: " + e.getMessage());
         }
     }
 

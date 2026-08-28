@@ -11,6 +11,7 @@ import com.ecommerce.order.api.dto.OrderResponse;
 import com.ecommerce.order.app.OrderAppService;
 import com.ecommerce.order.app.PaymentService;
 import com.ecommerce.order.infra.client.InventoryClient;
+import com.ecommerce.order.job.TimeoutScanner;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -24,18 +25,14 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/**
- * The transactional outbox: a state change and its event are written in one
- * transaction, so the event is guaranteed to exist whenever the state changed.
- * (Relay disabled here so the rows stay for inspection.)
- */
 @SpringBootTest
 @Testcontainers
 @TestPropertySource(properties = {
         "spring.kafka.listener.auto-startup=false",
-        "outbox.relay-interval-ms=3600000"
+        "outbox.relay-interval-ms=3600000",
+        "order.timeout.scan-interval-ms=3600000"   // don't let the scheduled scan fire; we call it manually
 })
-class OutboxTest {
+class TimeoutScannerTest {
 
     @Container
     @ServiceConnection
@@ -43,6 +40,9 @@ class OutboxTest {
 
     @Autowired
     OrderAppService orderAppService;
+
+    @Autowired
+    TimeoutScanner timeoutScanner;
 
     @Autowired
     PaymentService paymentService;
@@ -54,21 +54,44 @@ class OutboxTest {
     InventoryClient inventoryClient;
 
     @Test
-    void placeAndPay_writeCreatedAndPaidEventsToOutbox() {
+    void expiredUnpaidOrder_isCancelledAndEmitsReleaseEvent() {
         doNothing().when(inventoryClient).reserve(any(UUID.class), anyList());
 
-        OrderResponse order = orderAppService.placeOrder(9100, UUID.randomUUID().toString(),
+        OrderResponse order = orderAppService.placeOrder(9200, UUID.randomUUID().toString(),
                 new CreateOrderRequest(List.of(new OrderItemRequest(2001, 1))));
+
+        // Force the order past its payment deadline.
+        jdbc.update("UPDATE orders SET expire_at = now() - interval '1 minute' WHERE id = ?",
+                order.orderId());
+
+        timeoutScanner.scan();
+
+        String status = jdbc.queryForObject(
+                "SELECT status FROM orders WHERE id = ?", String.class, order.orderId());
+        assertThat(status).isEqualTo("CANCELLED");
+
+        Integer cancelledEvents = jdbc.queryForObject(
+                "SELECT count(*) FROM outbox WHERE aggregate_id = ? AND event_type = 'OrderCancelled'",
+                Integer.class, order.orderId());
+        assertThat(cancelledEvents).isEqualTo(1);
+    }
+
+    @Test
+    void paidOrder_isNotTouchedByScan() {
+        doNothing().when(inventoryClient).reserve(any(UUID.class), anyList());
+
+        OrderResponse order = orderAppService.placeOrder(9201, UUID.randomUUID().toString(),
+                new CreateOrderRequest(List.of(new OrderItemRequest(2002, 1))));
         paymentService.mockPay(order.orderId());
 
-        Integer created = jdbc.queryForObject(
-                "SELECT count(*) FROM outbox WHERE aggregate_id = ? AND event_type = 'OrderCreated'",
-                Integer.class, order.orderId());
-        Integer paid = jdbc.queryForObject(
-                "SELECT count(*) FROM outbox WHERE aggregate_id = ? AND event_type = 'OrderPaid'",
-                Integer.class, order.orderId());
+        // Even if its deadline passes, a PAID order must be ignored by the scan.
+        jdbc.update("UPDATE orders SET expire_at = now() - interval '1 minute' WHERE id = ?",
+                order.orderId());
 
-        assertThat(created).isEqualTo(1);
-        assertThat(paid).isEqualTo(1);
+        timeoutScanner.scan();
+
+        String status = jdbc.queryForObject(
+                "SELECT status FROM orders WHERE id = ?", String.class, order.orderId());
+        assertThat(status).isEqualTo("PAID");
     }
 }
