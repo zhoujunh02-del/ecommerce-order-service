@@ -56,7 +56,7 @@ class OrderPlacementTest {
         doNothing().when(inventoryClient).reserve(any(UUID.class), anyList());
 
         CreateOrderRequest req = new CreateOrderRequest(List.of(new OrderItemRequest(2001, 2)));
-        OrderResponse resp = orderAppService.placeOrder(USER, req);
+        OrderResponse resp = orderAppService.placeOrder(USER, UUID.randomUUID().toString(), req);
 
         assertThat(resp.status()).isEqualTo("PENDING_PAYMENT");
         Order persisted = orderMapper.findById(resp.orderId());
@@ -71,7 +71,7 @@ class OrderPlacementTest {
 
         CreateOrderRequest req = new CreateOrderRequest(List.of(new OrderItemRequest(2004, 2)));
 
-        assertThatThrownBy(() -> orderAppService.placeOrder(8002, req))
+        assertThatThrownBy(() -> orderAppService.placeOrder(8002, UUID.randomUUID().toString(), req))
                 .isInstanceOf(BusinessException.class)
                 .extracting("code").isEqualTo(ErrorCode.INSUFFICIENT_STOCK);
 

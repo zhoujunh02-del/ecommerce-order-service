@@ -29,8 +29,9 @@ public class OrderController {
     @PostMapping("/api/v1/orders")
     @ResponseStatus(HttpStatus.CREATED)
     public OrderResponse place(@RequestHeader("X-User-Id") long userId,
+                               @RequestHeader("Idempotency-Key") String idempotencyKey,
                                @RequestBody CreateOrderRequest req) {
-        return orderAppService.placeOrder(userId, req);
+        return orderAppService.placeOrder(userId, idempotencyKey, req);
     }
 
     @GetMapping("/api/v1/orders/{orderId}")
