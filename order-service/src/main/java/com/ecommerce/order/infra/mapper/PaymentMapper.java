@@ -18,4 +18,6 @@ public interface PaymentMapper {
     int insertPendingRefund(@Param("orderId") UUID orderId,
                             @Param("payNo") String payNo,
                             @Param("amount") BigDecimal amount);
+
+    long countPendingRefunds();
 }

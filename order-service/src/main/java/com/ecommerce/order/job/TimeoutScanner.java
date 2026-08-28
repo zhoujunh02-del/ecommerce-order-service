@@ -6,6 +6,7 @@ import com.ecommerce.order.domain.OrderStatus;
 import com.ecommerce.order.infra.mapper.OrderMapper;
 import com.ecommerce.order.infra.mapper.OutboxMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,17 +36,20 @@ public class TimeoutScanner {
     private final OrderMapper orderMapper;
     private final OutboxMapper outboxMapper;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
     private final int batchSize;
 
     public TimeoutScanner(TransactionTemplate tx,
                           OrderMapper orderMapper,
                           OutboxMapper outboxMapper,
                           ObjectMapper objectMapper,
+                          MeterRegistry meterRegistry,
                           @Value("${order.timeout.batch-size}") int batchSize) {
         this.tx = tx;
         this.orderMapper = orderMapper;
         this.outboxMapper = outboxMapper;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
         this.batchSize = batchSize;
     }
 
@@ -61,6 +65,7 @@ public class TimeoutScanner {
                 }
                 outboxMapper.insert(order.id(), OrderEvent.ORDER_CANCELLED,
                         toJson(OrderEvent.of(OrderEvent.ORDER_CANCELLED, order.id(), order.userId())));
+                meterRegistry.counter("order.cancelled", "reason", "timeout").increment();
                 log.info("Order {} cancelled by timeout scan", order.id());
             }
         });

@@ -22,6 +22,7 @@ import com.ecommerce.order.infra.mapper.OutboxMapper;
 import com.ecommerce.order.infra.mapper.Sku;
 import com.ecommerce.order.infra.mapper.SkuMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -56,6 +57,7 @@ public class OrderAppService {
     private final OutboxMapper outboxMapper;
     private final InventoryClient inventoryClient;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
     private final Duration paymentTimeout;
 
     public OrderAppService(TransactionTemplate tx,
@@ -66,6 +68,7 @@ public class OrderAppService {
                            OutboxMapper outboxMapper,
                            InventoryClient inventoryClient,
                            ObjectMapper objectMapper,
+                           MeterRegistry meterRegistry,
                            @Value("${order.payment-timeout}") Duration paymentTimeout) {
         this.tx = tx;
         this.orderMapper = orderMapper;
@@ -75,6 +78,7 @@ public class OrderAppService {
         this.outboxMapper = outboxMapper;
         this.inventoryClient = inventoryClient;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
         this.paymentTimeout = paymentTimeout;
     }
 
@@ -137,6 +141,7 @@ public class OrderAppService {
                     idempotencyMapper.complete(idemKey,
                             toJson(IdemOutcome.error(e.code().name(), e.getMessage())));
                 });
+                meterRegistry.counter("order.result", "outcome", "insufficient_stock").increment();
             }
             throw e;
         } catch (RuntimeException e) {
@@ -144,6 +149,7 @@ public class OrderAppService {
             // reserve happened. Leave the order CREATING and the key IN_PROGRESS; the
             // CreatingOrderReconciler will query inventory's status and decide. The
             // client gets a 503 and may retry (idempotently).
+            meterRegistry.counter("order.result", "outcome", "inventory_unavailable").increment();
             throw new BusinessException(ErrorCode.INVENTORY_UNAVAILABLE,
                     "inventory temporarily unavailable; order is being processed");
         }
@@ -156,6 +162,7 @@ public class OrderAppService {
                     toJson(OrderEvent.of(OrderEvent.ORDER_CREATED, orderId, userId)));
             idempotencyMapper.complete(idemKey, toJson(IdemOutcome.ok(resp)));
         });
+        meterRegistry.counter("order.result", "outcome", "created").increment();
         return resp;
     }
 

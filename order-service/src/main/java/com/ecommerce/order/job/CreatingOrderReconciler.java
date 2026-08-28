@@ -14,6 +14,7 @@ import com.ecommerce.order.infra.mapper.OrderItemRow;
 import com.ecommerce.order.infra.mapper.OrderMapper;
 import com.ecommerce.order.infra.mapper.OutboxMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +44,7 @@ public class CreatingOrderReconciler {
     private final IdempotencyMapper idempotencyMapper;
     private final InventoryClient inventoryClient;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
     private final long stuckAfterSeconds;
     private final int batchSize;
 
@@ -53,6 +55,7 @@ public class CreatingOrderReconciler {
                                    IdempotencyMapper idempotencyMapper,
                                    InventoryClient inventoryClient,
                                    ObjectMapper objectMapper,
+                                   MeterRegistry meterRegistry,
                                    @Value("${order.reconcile.stuck-after-seconds}") long stuckAfterSeconds,
                                    @Value("${order.reconcile.batch-size}") int batchSize) {
         this.tx = tx;
@@ -62,6 +65,7 @@ public class CreatingOrderReconciler {
         this.idempotencyMapper = idempotencyMapper;
         this.inventoryClient = inventoryClient;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
         this.stuckAfterSeconds = stuckAfterSeconds;
         this.batchSize = batchSize;
     }
@@ -94,6 +98,7 @@ public class CreatingOrderReconciler {
             outboxMapper.insert(order.id(), OrderEvent.ORDER_CREATED,
                     toJson(OrderEvent.of(OrderEvent.ORDER_CREATED, order.id(), order.userId())));
             completeIdempotency(order, IdemOutcome.ok(buildResponse(order)));
+            meterRegistry.counter("order.reconciled", "outcome", "confirmed").increment();
             log.info("Reconcile: order {} confirmed RESERVED -> PENDING_PAYMENT", order.id());
         });
     }
@@ -106,6 +111,7 @@ public class CreatingOrderReconciler {
                 return;
             }
             completeIdempotency(order, IdemOutcome.error(ErrorCode.INTERNAL_ERROR.name(), reason));
+            meterRegistry.counter("order.reconciled", "outcome", "failed").increment();
             log.info("Reconcile: order {} resolved to FAILED ({})", order.id(), reason);
         });
     }
