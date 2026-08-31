@@ -92,6 +92,11 @@ curl -X POST localhost:8080/api/v1/orders \
 curl -X POST localhost:8080/api/v1/mock-payment/<orderId>/pay
 ```
 
+### Kubernetes
+
+The system also runs on Kubernetes (kind) with all middleware in-cluster and
+CPU-based horizontal pod autoscaling. See [`k8s/`](k8s/) for manifests and steps.
+
 ## Key APIs
 
 | Method | Path | Purpose |
@@ -146,3 +151,4 @@ Built in phases, each ending in a verifiable, demonstrable state:
 - [x] **Phase 3** — Saga compensation and timeout-uncertainty handling
 - [x] **Phase 4** — Redis two-tier deduction and performance tuning
 - [x] **Phase 5** — Observability and documentation
+- [x] **Phase 6** — Kubernetes deployment with horizontal autoscaling ([k8s/](k8s/))

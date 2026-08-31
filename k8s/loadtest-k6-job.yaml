@@ -1,0 +1,52 @@
+# In-cluster load generator used to demonstrate autoscaling. It floods the
+# order-service Service with placements, driving CPU up so the HPA scales out.
+#   kubectl apply -f k8s/loadtest-k6-job.yaml
+#   kubectl delete -f k8s/loadtest-k6-job.yaml   # to re-run
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-script
+  namespace: ecommerce
+data:
+  load.js: |
+    import http from 'k6/http';
+    import { check } from 'k6';
+    const BASE = __ENV.BASE_URL || 'http://order-service:8080';
+    export const options = {
+      scenarios: { load: { executor: 'constant-vus', vus: 150, duration: '120s' } },
+    };
+    function uuidv4() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
+    }
+    export default function () {
+      const res = http.post(`${BASE}/api/v1/orders`,
+        JSON.stringify({ items: [{ skuId: 2005, quantity: 1 }] }),
+        { headers: { 'Content-Type': 'application/json', 'X-User-Id': '1001', 'Idempotency-Key': uuidv4() } });
+      check(res, { 'ok': (r) => r.status === 201 || r.status === 409 });
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-load
+  namespace: ecommerce
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6
+          args: ["run", "/scripts/load.js"]
+          env:
+            - { name: BASE_URL, value: "http://order-service:8080" }
+          volumeMounts:
+            - { name: script, mountPath: /scripts }
+      volumes:
+        - name: script
+          configMap: { name: k6-script }
