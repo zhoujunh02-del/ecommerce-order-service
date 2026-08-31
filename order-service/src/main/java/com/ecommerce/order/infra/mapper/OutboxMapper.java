@@ -24,4 +24,6 @@ public interface OutboxMapper {
 
     /** Give up after too many retries: move to DEAD for manual intervention. */
     int markDead(@Param("id") long id);
+
+    long countByStatus(@Param("status") String status);
 }

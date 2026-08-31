@@ -32,4 +32,8 @@
     <update id="markDead">
         UPDATE outbox SET status = 'DEAD' WHERE id = #{id}
     </update>
+
+    <select id="countByStatus" resultType="long">
+        SELECT count(*) FROM outbox WHERE status = #{status}
+    </select>
 </mapper>

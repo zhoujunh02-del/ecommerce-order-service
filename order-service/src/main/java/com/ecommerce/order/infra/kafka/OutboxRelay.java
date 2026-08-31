@@ -2,6 +2,8 @@ package com.ecommerce.order.infra.kafka;
 
 import com.ecommerce.order.infra.mapper.OutboxMapper;
 import com.ecommerce.order.infra.mapper.OutboxRow;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -26,20 +28,28 @@ public class OutboxRelay {
 
     private final OutboxMapper outboxMapper;
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final MeterRegistry meterRegistry;
     private final String topic;
     private final int batchSize;
     private final int maxRetry;
 
     public OutboxRelay(OutboxMapper outboxMapper,
                        KafkaTemplate<String, String> kafkaTemplate,
+                       MeterRegistry meterRegistry,
                        @Value("${outbox.topic}") String topic,
                        @Value("${outbox.batch-size}") int batchSize,
                        @Value("${outbox.max-retry}") int maxRetry) {
         this.outboxMapper = outboxMapper;
         this.kafkaTemplate = kafkaTemplate;
+        this.meterRegistry = meterRegistry;
         this.topic = topic;
         this.batchSize = batchSize;
         this.maxRetry = maxRetry;
+        // Live gauges of the outbox backlog — the first thing to watch if events stall.
+        Gauge.builder("outbox.pending", outboxMapper, m -> m.countByStatus("PENDING"))
+                .description("outbox events awaiting delivery").register(meterRegistry);
+        Gauge.builder("outbox.dead", outboxMapper, m -> m.countByStatus("DEAD"))
+                .description("outbox events that exhausted retries").register(meterRegistry);
     }
 
     @Scheduled(fixedDelayString = "${outbox.relay-interval-ms}")
@@ -52,10 +62,12 @@ public class OutboxRelay {
                 kafkaTemplate.send(topic, row.aggregateId().toString(), row.payload())
                         .get(3, TimeUnit.SECONDS);
                 outboxMapper.markSent(row.id());
+                meterRegistry.counter("outbox.relayed", "result", "sent").increment();
             } catch (Exception e) {
                 int nextAttempt = row.retryCount() + 1;
                 if (nextAttempt >= maxRetry) {
                     outboxMapper.markDead(row.id());
+                    meterRegistry.counter("outbox.relayed", "result", "dead").increment();
                     log.error("Outbox event {} moved to DEAD after {} retries", row.id(), nextAttempt, e);
                 } else {
                     // Exponential backoff, capped.

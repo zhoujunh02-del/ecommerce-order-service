@@ -8,6 +8,7 @@ import com.ecommerce.inventory.infra.mapper.InventoryMapper;
 import com.ecommerce.inventory.infra.mapper.LedgerEntry;
 import com.ecommerce.inventory.infra.mapper.StockLedgerMapper;
 import com.ecommerce.inventory.infra.redis.RedisStockService;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -25,13 +26,16 @@ public class StockService {
     private final InventoryMapper inventoryMapper;
     private final StockLedgerMapper ledgerMapper;
     private final RedisStockService redisStock;
+    private final MeterRegistry meterRegistry;
 
     public StockService(InventoryMapper inventoryMapper,
                         StockLedgerMapper ledgerMapper,
-                        RedisStockService redisStock) {
+                        RedisStockService redisStock,
+                        MeterRegistry meterRegistry) {
         this.inventoryMapper = inventoryMapper;
         this.ledgerMapper = ledgerMapper;
         this.redisStock = redisStock;
+        this.meterRegistry = meterRegistry;
     }
 
     /** Hold stock for an order. available -> reserved. */
@@ -81,6 +85,13 @@ public class StockService {
                 }
                 ledgerMapper.insert(line.skuId(), orderId, "RESERVE", line.quantity());
             }
+            meterRegistry.counter("inventory.reserve", "result", "reserved").increment();
+        } catch (BusinessException e) {
+            releaseRedis(redisHeld);
+            if (e.code() == ErrorCode.INSUFFICIENT_STOCK) {
+                meterRegistry.counter("inventory.reserve", "result", "insufficient").increment();
+            }
+            throw e;
         } catch (RuntimeException e) {
             // The DB transaction rolls back on throw; give the Redis pre-deducts back too.
             releaseRedis(redisHeld);

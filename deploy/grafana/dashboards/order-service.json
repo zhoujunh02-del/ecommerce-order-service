@@ -1,0 +1,72 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "schemaVersion": 39,
+  "title": "Order Service",
+  "tags": ["ecommerce"],
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "5s",
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Outbox pending",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [ { "refId": "A", "expr": "sum(outbox_pending)" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Outbox dead",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "sum(outbox_dead)" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Orders created /s",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [ { "refId": "A", "expr": "sum(rate(order_result_total{outcome=\"created\"}[1m]))" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Reserve insufficient /s",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [ { "refId": "A", "expr": "sum(rate(inventory_reserve_total{result=\"insufficient\"}[1m]))" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Order outcomes /s",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [ { "refId": "A", "expr": "sum by (outcome) (rate(order_result_total[1m]))", "legendFormat": "{{outcome}}" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Inventory reserve /s",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [ { "refId": "A", "expr": "sum by (result) (rate(inventory_reserve_total[1m]))", "legendFormat": "{{result}}" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Background jobs /s (cancel, reconcile)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(order_cancelled_total[1m]))", "legendFormat": "cancelled" },
+        { "refId": "B", "expr": "sum by (outcome) (rate(order_reconciled_total[1m]))", "legendFormat": "reconciled {{outcome}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox relayed /s",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [ { "refId": "A", "expr": "sum by (result) (rate(outbox_relayed_total[1m]))", "legendFormat": "{{result}}" } ]
+    }
+  ]
+}

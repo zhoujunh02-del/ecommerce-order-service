@@ -12,4 +12,8 @@
         INSERT INTO pending_refund (order_id, pay_no, amount)
         VALUES (#{orderId}, #{payNo}, #{amount})
     </insert>
+
+    <select id="countPendingRefunds" resultType="long">
+        SELECT count(*) FROM pending_refund WHERE status = 'PENDING'
+    </select>
 </mapper>
