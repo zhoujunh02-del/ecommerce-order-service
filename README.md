@@ -92,6 +92,10 @@ curl -X POST localhost:8080/api/v1/orders \
 curl -X POST localhost:8080/api/v1/mock-payment/<orderId>/pay
 ```
 
+For a full walkthrough — idempotency, oversell prevention, timeout cancellation,
+Kafka fault tolerance, live metrics, and Kubernetes autoscaling — see
+[`docs/DEMO.md`](docs/DEMO.md).
+
 ### Kubernetes
 
 The system also runs on Kubernetes (kind) with all middleware in-cluster and
