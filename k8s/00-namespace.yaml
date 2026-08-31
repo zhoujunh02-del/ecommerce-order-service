@@ -1,0 +1,6 @@
+# A namespace groups all the resources for this app, so they can be listed,
+# scoped, and deleted together.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce

@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory-service-config
+  namespace: ecommerce
+data:
+  # SPRING_APPLICATION_JSON uses exact dotted property names (no env-var relaxed-binding
+  # ambiguity). Points the app at the in-cluster Service DNS names.
+  SPRING_APPLICATION_JSON: >-
+    {"spring.datasource.url":"jdbc:postgresql://postgres:5432/inventory_db",
+     "spring.datasource.username":"inventory_user",
+     "spring.datasource.password":"inventory_pass",
+     "spring.datasource.hikari.maximum-pool-size":5,
+     "spring.data.redis.host":"redis",
+     "spring.kafka.bootstrap-servers":"kafka:9092"}
+  JAVA_TOOL_OPTIONS: "-Xmx384m -Xms256m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+  namespace: ecommerce
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: inventory-service }
+  template:
+    metadata:
+      labels: { app: inventory-service }
+    spec:
+      containers:
+        - name: inventory-service
+          image: inventory-service:phase6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef: { name: inventory-service-config }
+          # HPA scales on CPU as a percentage of this request (250m).
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          readinessProbe:
+            httpGet: { path: /actuator/health, port: 8081 }
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health, port: 8081 }
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-service
+  namespace: ecommerce
+spec:
+  selector: { app: inventory-service }
+  ports:
+    - port: 8081
+      targetPort: 8081
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: inventory-service
+  namespace: ecommerce
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: inventory-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
